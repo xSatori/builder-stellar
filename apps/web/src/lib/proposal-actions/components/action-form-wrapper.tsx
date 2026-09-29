@@ -117,7 +117,9 @@ export function ActionFormWrapper({ daoId }: { daoId: string }) {
         actionType={editingState.actionType}
         actionLabel={handler!.label}
         disabled={isDisabled}
+        busy={busy}
         preconditionResult={preconditionResult}
+        validationErrors={validationErrors}
         onActionTypeChange={handleActionTypeChange}
         onSave={handleSave}
         onCancel={handleCancel}
@@ -136,11 +138,7 @@ export function ActionFormWrapper({ daoId }: { daoId: string }) {
               </div>
             }
           >
-            {/* Note: draftPreview is intentionally NOT passed here.
-                Admin forms show draft previews to alert users when a setting change is already queued
-                (preventing duplicate submissions). In proposal creation, the full action queue is
-                visible separately below the form, giving users complete visibility. Draft previews
-                would be redundant here and create visual clutter. */}
+            {/* Saved action cards provide the proposal context alongside this editor. */}
             <FormComponent
               value={editingState.draftData}
               onChange={(value) => updateDraft(address, daoId, value)}

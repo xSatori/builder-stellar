@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Stack } from 'styled-system/jsx';
 
 import { PageSection } from '@/components/page-section';
+import { TreasuryAllocationChart } from '@/components/treasury-allocation-chart';
 import { Button, Callout, Card, Heading, ShortId, Skeleton, Text } from '@/components/ui';
 import { useDaoContext } from '@/contexts/dao-context';
 import { findAsset } from '@/lib/assets-config';
@@ -87,6 +88,8 @@ export default function TreasuryPage() {
                   </Heading>
                 </div>
               </div>
+
+              {balances ? <TreasuryAllocationChart balances={balances} /> : null}
 
               <Card p="4" style={{ border: '1px solid var(--border-strong)', background: 'var(--surface-0)' }}>
                 <div className="treasury-contract-row">

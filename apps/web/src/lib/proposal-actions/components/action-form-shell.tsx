@@ -8,14 +8,16 @@ import { Stack } from 'styled-system/jsx';
 import { Badge, Button, Callout, Card, FieldLabel, Select, Skeleton, Text } from '@/components/ui';
 
 import { getAllActionHandlers } from '../registry';
-import type { PreconditionResult, ProposalActionType } from '../types';
+import type { PreconditionResult, ProposalActionType, ValidationResult } from '../types';
 
 export interface ActionFormShellProps {
   mode: 'create' | 'edit';
   actionType: ProposalActionType;
   actionLabel: string;
   disabled: boolean;
+  busy: boolean;
   preconditionResult?: PreconditionResult;
+  validationErrors?: ValidationResult | null;
   onActionTypeChange: (type: ProposalActionType) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -26,7 +28,9 @@ export function ActionFormShell({
   mode,
   actionType,
   disabled,
+  busy,
   preconditionResult,
+  validationErrors,
   onActionTypeChange,
   onSave,
   onCancel,
@@ -47,6 +51,9 @@ export function ActionFormShell({
         {preconditionResult && !preconditionResult.canExecute && !preconditionResult.loading ? (
           <Callout variant="error" title={preconditionResult.reason} />
         ) : null}
+        {validationErrors && !validationErrors.valid ? (
+          <Callout variant="error" title={validationErrors.message} />
+        ) : null}
 
         {/* Header */}
         <div
@@ -61,14 +68,9 @@ export function ActionFormShell({
           <Stack gap="1">
             <Badge>{mode === 'edit' ? 'Editing' : 'Action builder'}</Badge>
             <Text className="lede" style={{ margin: 0, fontSize: '1rem' }}>
-              {mode === 'edit' ? 'Edit queued action' : 'Add action'}
+              {mode === 'edit' ? 'Edit action' : 'New action'}
             </Text>
           </Stack>
-          {mode === 'edit' && (
-            <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>
-              Cancel edit
-            </Button>
-          )}
         </div>
 
         {/* Action Type Selector */}
@@ -88,7 +90,7 @@ export function ActionFormShell({
             ))}
           </Select>
           <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)' }}>
-            Each queued action becomes a separate governor call in the final proposal.
+            Each saved action becomes a separate governor call in the final proposal.
           </Text>
         </Stack>
 
@@ -104,11 +106,11 @@ export function ActionFormShell({
             flexWrap: 'wrap'
           }}
         >
-          <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>
-            Clear draft
+          <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
+            {mode === 'edit' ? 'Cancel edit' : 'Cancel new action'}
           </Button>
           <Button type="button" onClick={onSave} disabled={disabled}>
-            {mode === 'edit' ? 'Save action' : 'Add action'}
+            Save action
           </Button>
         </div>
       </Stack>

@@ -2,20 +2,24 @@
 
 'use client';
 
+import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Stack } from 'styled-system/jsx';
 
 import { ProposalActionConfirmDialog } from '@/components/proposal/proposal-action-confirm-dialog';
-import { Badge, Button, Card, Text } from '@/components/ui';
+import { Button, Card, Text } from '@/components/ui';
 import { getProposalActionSummary } from '@/lib/proposal-call';
 import { useAuthSessionStore } from '@/stores/auth-session-store';
 import {
+  type EditingState,
   normalizeWalletAddress,
   selectQueuedActions,
   useProposalComposerStore
 } from '@/stores/proposal-composer-store';
 
 import { getActionHandler } from '../registry';
+import type { ProposalQueuedAction } from '../types';
+import { ActionFormWrapper } from './action-form-wrapper';
 
 type ConfirmDialogState = {
   open: boolean;
@@ -25,24 +29,100 @@ type ConfirmDialogState = {
   onConfirm: () => void;
 } | null;
 
+type ProposalActionQueueItemsProps = {
+  daoId: string;
+  editable: boolean;
+  queuedActions: ProposalQueuedAction[];
+  editingState: EditingState | null;
+  onEdit: (index: number) => void;
+  onRemove: (index: number, actionLabel: string) => void;
+  onAdd: () => void;
+};
+
+export function ProposalActionQueueItems({
+  daoId,
+  editable,
+  queuedActions,
+  editingState,
+  onEdit,
+  onRemove,
+  onAdd
+}: ProposalActionQueueItemsProps) {
+  return (
+    <Stack gap="3" className="proposal-action-list">
+      {queuedActions.map((action, index) => {
+        const handler = getActionHandler(action.type);
+
+        if (editable && editingState?.mode === 'edit' && editingState.index === index) {
+          return <ActionFormWrapper key={action.id} daoId={daoId} />;
+        }
+
+        return (
+          <Card key={action.id} p="4" className="proposal-action-card">
+            <Stack gap="3">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ minWidth: 0 }}>
+                  <Text style={{ fontWeight: 600, marginBottom: '4px' }}>{handler.label}</Text>
+                  <Text
+                    className="proposal-action-card__summary"
+                    style={{ fontSize: '0.875rem', color: 'var(--gray-11)' }}
+                  >
+                    {getProposalActionSummary(action)}
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', flex: 'none', gap: '8px' }}>
+                  {editable ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => onEdit(index)}>
+                      Edit
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onRemove(index, handler.label)}
+                    aria-label={`Remove action ${index + 1}: ${handler.label}`}
+                    title="Remove action"
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+            </Stack>
+          </Card>
+        );
+      })}
+      {editable && editingState?.mode === 'create' ? <ActionFormWrapper daoId={daoId} /> : null}
+      {editable && !editingState ? (
+        <Button type="button" onClick={onAdd}>
+          Add action
+        </Button>
+      ) : null}
+    </Stack>
+  );
+}
+
 export function ProposalActionQueue({ daoId, editable = true }: { daoId: string; editable?: boolean }) {
   const address = useAuthSessionStore((state) => state.address);
   const walletKey = normalizeWalletAddress(address);
   const queuedActions = useProposalComposerStore(selectQueuedActions(address, daoId));
   const editingState = useProposalComposerStore((s) => s.draftsByWallet[walletKey]?.[daoId]?.editingState ?? null);
-  const editingIndex = editingState?.index;
   const beginEdit = useProposalComposerStore((s) => s.beginEdit);
+  const beginCreate = useProposalComposerStore((s) => s.beginCreate);
   const removeAction = useProposalComposerStore((s) => s.removeAction);
 
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>(null);
 
   const handleEdit = (index: number) => {
     // If already editing a different action, confirm before switching
-    if (editingState && editingIndex !== index) {
+    if (editingState && editingState.index !== index) {
       setConfirmDialog({
         open: true,
         title: 'Switch to editing this action?',
-        message: 'Your current unsaved changes will be discarded (the original queued action remains unchanged).',
+        message:
+          editingState.mode === 'edit'
+            ? 'Your unsaved changes will be discarded. The original saved action will remain unchanged.'
+            : 'Your unsaved action will be discarded.',
         confirmLabel: 'Switch',
         onConfirm: () => {
           beginEdit(address, daoId, index);
@@ -67,7 +147,7 @@ export function ProposalActionQueue({ daoId, editable = true }: { daoId: string;
     });
   };
 
-  if (queuedActions.length === 0) {
+  if (!editable && queuedActions.length === 0) {
     return (
       <Card p="4">
         <Text style={{ color: 'var(--gray-11)' }}>No actions queued yet. Add an action above to get started.</Text>
@@ -76,53 +156,16 @@ export function ProposalActionQueue({ daoId, editable = true }: { daoId: string;
   }
 
   return (
-    <Stack gap="3">
-      {queuedActions.map((action, index) => {
-        const handler = getActionHandler(action.type);
-        const isEditing = editingIndex === index;
-
-        return (
-          <Card
-            key={action.id}
-            p="4"
-            style={{
-              border: isEditing ? '2px solid var(--accent-9)' : undefined
-            }}
-          >
-            <Stack gap="3">
-              <div>
-                {isEditing && <Badge style={{ marginBottom: '8px' }}>Currently editing</Badge>}
-                <Text style={{ fontWeight: 600, marginBottom: '4px' }}>{handler.label}</Text>
-                <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)' }}>
-                  {getProposalActionSummary(action)}
-                </Text>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {editable ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEdit(index)}
-                    disabled={isEditing}
-                  >
-                    {isEditing ? 'Editing' : 'Edit'}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleRemove(index, handler.label)}
-                  disabled={editable && isEditing}
-                >
-                  Remove
-                </Button>
-              </div>
-            </Stack>
-          </Card>
-        );
-      })}
+    <>
+      <ProposalActionQueueItems
+        daoId={daoId}
+        editable={editable}
+        queuedActions={queuedActions}
+        editingState={editingState}
+        onEdit={handleEdit}
+        onRemove={handleRemove}
+        onAdd={() => beginCreate(address, daoId)}
+      />
       <ProposalActionConfirmDialog
         open={confirmDialog?.open ?? false}
         title={confirmDialog?.title ?? ''}
@@ -132,6 +175,6 @@ export function ProposalActionQueue({ daoId, editable = true }: { daoId: string;
         onConfirm={confirmDialog?.onConfirm ?? (() => {})}
         onCancel={() => setConfirmDialog(null)}
       />
-    </Stack>
+    </>
   );
 }

@@ -5,7 +5,7 @@
 import { Client as GovernorClient } from '@builder-stellar/governor-bindings';
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit/sdk';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Stack } from 'styled-system/jsx';
 
 import { PageSection } from '@/components/page-section';
@@ -15,7 +15,7 @@ import { Badge, Button, Callout, Card, Heading, Input, Skeleton, Text, Textarea 
 import { useDaoContext } from '@/contexts/dao-context';
 import { daoRoute } from '@/lib/dao-routes';
 import { analyzeProposalAction } from '@/lib/proposal-action-identity';
-import { ActionFormProvider, ActionFormWrapper, ProposalActionQueue } from '@/lib/proposal-actions';
+import { ActionFormProvider, ProposalActionQueue } from '@/lib/proposal-actions';
 import { buildProposalCallVectors, encodeProposalCallArgs, getProposalActionSummary } from '@/lib/proposal-call';
 import { useProposalEligibility } from '@/lib/proposal-eligibility';
 import { proposalIdToRouteId } from '@/lib/proposal-id';
@@ -24,6 +24,17 @@ import { waitForConfirmation } from '@/lib/transaction-confirmation';
 import { useTransactionFeedback } from '@/lib/transaction-feedback';
 import { useAuthSessionStore } from '@/stores/auth-session-store';
 import { selectDraft, selectHasDraft, useProposalComposerStore } from '@/stores/proposal-composer-store';
+
+function ProposalStatusLayout({ address, children }: { address: string | null; children: ReactNode }) {
+  return (
+    <div className="proposal-composer-layout">
+      <nav className="proposal-composer-nav" aria-label="DAO workspace">
+        <ProposalContextRail address={address} />
+      </nav>
+      <div className="proposal-composer-form">{children}</div>
+    </div>
+  );
+}
 
 export default function ProposalCreatePage() {
   const { daoId } = useDaoContext();
@@ -38,7 +49,6 @@ export default function ProposalCreatePage() {
   const hasDraft = useProposalComposerStore(selectHasDraft(draftAddress, daoId));
 
   const updateMetadata = useProposalComposerStore((s) => s.updateMetadata);
-  const beginCreate = useProposalComposerStore((s) => s.beginCreate);
   const reset = useProposalComposerStore((s) => s.reset);
 
   // Queries
@@ -51,12 +61,9 @@ export default function ProposalCreatePage() {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('proposal-title');
-  const [contextRailOpen, setContextRailOpen] = useState(false);
-  const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const reviewTriggerRef = useRef<HTMLButtonElement>(null);
   const reviewCloseRef = useRef<HTMLButtonElement>(null);
   const reviewDialogRef = useRef<HTMLDivElement>(null);
-  const closeContextRail = useCallback(() => setContextRailOpen(false), []);
   const closeReview = useCallback(() => setReviewOpen(false), []);
 
   const proposalCreationError = eligibility.error?.message;
@@ -201,27 +208,33 @@ export default function ProposalCreatePage() {
         <div className="proposal-studio-layout">
           <Stack gap="6">
             {draftAddress && eligibility.loading ? (
-              <div role="status" aria-live="polite" aria-busy="true" className="loading-card">
-                <span className="sr-only">Checking proposal eligibility</span>
-                <Card p="4">
-                  <Stack gap="2">
-                    <Skeleton style={{ width: '190px', height: '1.1em' }} />
-                    <Skeleton style={{ width: '320px', maxWidth: '100%', height: '0.9em' }} />
-                  </Stack>
-                </Card>
-              </div>
+              <ProposalStatusLayout address={session.address}>
+                <div role="status" aria-live="polite" aria-busy="true" className="loading-card">
+                  <span className="sr-only">Checking proposal eligibility</span>
+                  <Card p="4">
+                    <Stack gap="2">
+                      <Skeleton style={{ width: '190px', height: '1.1em' }} />
+                      <Skeleton style={{ width: '320px', maxWidth: '100%', height: '0.9em' }} />
+                    </Stack>
+                  </Card>
+                </div>
+              </ProposalStatusLayout>
             ) : proposalCreationError && !hasDraft ? (
-              <Callout
-                variant="error"
-                title="Unable to check proposal eligibility"
-                description={proposalCreationError}
-              />
+              <ProposalStatusLayout address={session.address}>
+                <Callout
+                  variant="error"
+                  title="Unable to check proposal eligibility"
+                  description={proposalCreationError}
+                />
+              </ProposalStatusLayout>
             ) : proposalCreationLocked && !hasDraft ? (
-              <Callout
-                variant="warning"
-                title="Cannot Create Proposals"
-                description={proposalCreationDisabledMessage}
-              />
+              <ProposalStatusLayout address={session.address}>
+                <Callout
+                  variant="warning"
+                  title="Cannot Create Proposals"
+                  description={proposalCreationDisabledMessage}
+                />
+              </ProposalStatusLayout>
             ) : (
               <>
                 {proposalCreationError ? (
@@ -240,6 +253,8 @@ export default function ProposalCreatePage() {
                 ) : null}
                 <div className="proposal-composer-layout">
                   <nav className="proposal-composer-nav" aria-label="Proposal fields">
+                    <ProposalContextRail address={session.address} />
+                    <div className="proposal-workspace-divider" role="separator" />
                     <Text className="label">On this page</Text>
                     {[
                       ['proposal-title', 'Title'],
@@ -334,16 +349,7 @@ export default function ProposalCreatePage() {
                         config={config}
                         session={{ address: session.address, kit: StellarWalletsKit }}
                       >
-                        <Stack gap="4">
-                          {!editingState ? (
-                            <Button onClick={() => beginCreate(draftAddress, daoId)}>Add Action</Button>
-                          ) : null}
-                          <ActionFormWrapper daoId={daoId} />
-                          <Heading as="h3" style={{ fontSize: '1.125rem' }}>
-                            Queued Actions ({queuedActions.length})
-                          </Heading>
-                          <ProposalActionQueue daoId={daoId} />
-                        </Stack>
+                        <ProposalActionQueue daoId={daoId} />
                       </ActionFormProvider>
                     </section>
 
@@ -372,28 +378,6 @@ export default function ProposalCreatePage() {
               </>
             )}
           </Stack>
-          {!reviewOpen ? (
-            <>
-              <ProposalContextRail
-                key={editingState?.actionType ?? 'no-action'}
-                activeActionType={editingState?.actionType}
-                mobileOpen={contextRailOpen}
-                onMobileClose={closeContextRail}
-                mobileTriggerRef={contextTriggerRef}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="proposal-context-mobile-trigger"
-                onClick={() => setContextRailOpen(true)}
-                ref={contextTriggerRef}
-                aria-expanded={contextRailOpen}
-                aria-controls="proposal-context-rail"
-              >
-                Reference DAO context
-              </Button>
-            </>
-          ) : null}
         </div>
       </PageSection>
 

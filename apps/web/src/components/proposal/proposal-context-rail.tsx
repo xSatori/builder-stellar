@@ -2,32 +2,32 @@
 
 import { RefreshCw, Search, X } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { Stack } from 'styled-system/jsx';
 import useSWR from 'swr';
 
 import { DaoContractList } from '@/components/dao-contract-list';
+import { TreasuryAllocationChart } from '@/components/treasury-allocation-chart';
 import { Badge, Button, Callout, CopyIconButton, Input, Skeleton, Text } from '@/components/ui';
 import { useDaoContext } from '@/contexts/dao-context';
+import { findAsset } from '@/lib/assets-config';
 import { useGoldskyMemberList } from '@/lib/goldsky-queries';
 import { useTreasuryBalances } from '@/lib/treasury-queries';
 
 import type { ProposalListResponse } from './types';
 
-type ContextTab = 'treasury' | 'members' | 'contracts' | 'history';
+type ContextTab = 'user' | 'contracts' | 'treasury' | 'members' | 'history';
 
 type ProposalContextRailProps = {
-  activeActionType?: string;
-  mobileOpen: boolean;
-  onMobileClose: () => void;
-  mobileTriggerRef: React.RefObject<HTMLButtonElement | null>;
+  address: string | null;
 };
 
-const tabs: Array<{ id: ContextTab; label: string; shortLabel: string }> = [
-  { id: 'treasury', label: 'Treasury', shortLabel: 'Treasury' },
-  { id: 'members', label: 'Members', shortLabel: 'Members' },
-  { id: 'contracts', label: 'Contracts', shortLabel: 'Contracts' },
-  { id: 'history', label: 'History', shortLabel: 'History' }
+const tabs: Array<{ id: ContextTab; label: string }> = [
+  { id: 'user', label: 'User' },
+  { id: 'contracts', label: 'Contracts' },
+  { id: 'treasury', label: 'Treasury' },
+  { id: 'members', label: 'Members' },
+  { id: 'history', label: 'History' }
 ];
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -105,31 +105,67 @@ function PanelSkeleton({ type }: { type: 'balances' | 'members' | 'history' }) {
 }
 
 function TreasuryPanel({ config }: { config: Parameters<typeof useTreasuryBalances>[0] }) {
-  const { data: balances, error, isLoading } = useTreasuryBalances(config);
+  const { data: balances, error, isLoading, mutate } = useTreasuryBalances(config);
+  const [copiedAsset, setCopiedAsset] = useState<string | null>(null);
+
+  const copyContract = async (contractId: string) => {
+    try {
+      await navigator.clipboard.writeText(contractId);
+      setCopiedAsset(contractId);
+      window.setTimeout(() => setCopiedAsset((current) => (current === contractId ? null : current)), 1500);
+    } catch {
+      setCopiedAsset(null);
+    }
+  };
 
   return (
-    <DataState
-      loading={isLoading && !balances}
-      error={error}
-      hasData={Boolean(balances)}
-      loadingContent={<PanelSkeleton type="balances" />}
-    >
-      <div className="proposal-context-list">
-        {balances?.length ? (
-          balances.map((asset) => (
-            <div className="proposal-context-row" key={`${asset.assetCode}-${asset.assetIssuer ?? 'native'}`}>
-              <div>
-                <strong>{asset.assetCode}</strong>
-                <Text className="proposal-context-detail">Available in treasury</Text>
-              </div>
-              <strong className="proposal-context-value">{formatBalance(asset.balance)}</strong>
-            </div>
-          ))
-        ) : (
-          <Text className="proposal-context-detail">No assets are configured for this treasury.</Text>
-        )}
+    <Stack gap="3">
+      <div className="proposal-context-panel-actions">
+        <Text className="proposal-context-detail">Contract-held balances</Text>
+        <Button type="button" variant="outline" size="sm" onClick={() => void mutate()} disabled={isLoading}>
+          <RefreshCw size={14} aria-hidden="true" /> Refresh
+        </Button>
       </div>
-    </DataState>
+      <DataState
+        loading={isLoading && !balances}
+        error={error}
+        hasData={Boolean(balances)}
+        loadingContent={<PanelSkeleton type="balances" />}
+      >
+        {balances ? <TreasuryAllocationChart balances={balances} /> : null}
+        <div className="proposal-context-list">
+          {balances?.length ? (
+            balances.map((asset) => {
+              const contractId = findAsset(config.name, asset.assetCode)?.contractId;
+              return (
+                <div
+                  className="proposal-context-row proposal-context-asset"
+                  key={`${asset.assetCode}-${asset.assetIssuer ?? 'native'}`}
+                >
+                  <div>
+                    <strong>{asset.assetCode}</strong>
+                    <Text className="proposal-context-detail">
+                      {formatBalance(asset.balance)} {asset.assetCode}
+                    </Text>
+                  </div>
+                  {contractId ? (
+                    <CopyIconButton
+                      copied={copiedAsset === contractId}
+                      onClick={() => void copyContract(contractId)}
+                      label={`Copy ${asset.assetCode} contract address`}
+                    />
+                  ) : (
+                    <Text className="proposal-context-detail">Address unavailable</Text>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <Text className="proposal-context-detail">No assets are configured for this treasury.</Text>
+          )}
+        </div>
+      </DataState>
+    </Stack>
   );
 }
 
@@ -259,165 +295,141 @@ function HistoryPanel({ daoId }: { daoId: string }) {
   );
 }
 
-export function ProposalContextRail({
-  activeActionType,
-  mobileOpen,
-  onMobileClose,
-  mobileTriggerRef
-}: ProposalContextRailProps) {
+export function ProposalContextRail({ address }: ProposalContextRailProps) {
   const { daoId, daoTokenAddress, daoConfig: config } = useDaoContext();
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const railRef = useRef<HTMLElement>(null);
-  const wasMobileOpen = useRef(false);
-  const [activeTab, setActiveTab] = useState<ContextTab>(
-    activeActionType?.includes('transfer') ? 'treasury' : 'members'
-  );
+  const [activeTab, setActiveTab] = useState<ContextTab | null>(null);
+  const [copiedUser, setCopiedUser] = useState(false);
+  const buttonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const suppressFocusOpen = useRef(false);
 
-  useEffect(() => {
-    if (!mobileOpen) {
-      if (wasMobileOpen.current) {
-        wasMobileOpen.current = false;
-        mobileTriggerRef.current?.focus();
-      }
-      return;
+  const closeFlyout = () => {
+    const trigger = activeTab ? buttonsRef.current[activeTab] : null;
+    setActiveTab(null);
+    if (trigger && document.activeElement !== trigger) {
+      suppressFocusOpen.current = true;
+      trigger.focus();
     }
+  };
 
-    wasMobileOpen.current = true;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onMobileClose();
-      if (event.key !== 'Tab') return;
-
-      const focusable = railRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusable?.length) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!railRef.current?.contains(document.activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [mobileOpen, mobileTriggerRef, onMobileClose]);
-
-  const selectTab = (tab: ContextTab) => {
-    setActiveTab(tab);
+  const copyUserAddress = async () => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedUser(true);
+      window.setTimeout(() => setCopiedUser(false), 1500);
+    } catch {
+      setCopiedUser(false);
+    }
   };
 
   return (
-    <>
-      {mobileOpen ? (
-        <button
-          className="proposal-context-backdrop"
-          type="button"
-          aria-label="Close DAO context"
-          onClick={onMobileClose}
-        />
-      ) : null}
-      <aside
-        id="proposal-context-rail"
-        ref={railRef}
-        className={`proposal-context-rail${mobileOpen ? ' is-mobile-open' : ''}`}
-        aria-label="DAO context"
-        aria-labelledby="proposal-context-title"
-        aria-modal={mobileOpen || undefined}
-        role={mobileOpen ? 'dialog' : undefined}
-      >
-        <div className="proposal-context-rail__header">
-          <div>
-            <Text className="label">DAO workspace</Text>
-            <Text className="proposal-context-rail__title" id="proposal-context-title">
-              Context for your proposal
-            </Text>
-            <Text className="proposal-context-intro">Live details to ground your next decision.</Text>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="proposal-context-close"
-            onClick={onMobileClose}
-            aria-label="Close DAO context"
-            ref={closeButtonRef}
-          >
-            <X size={18} aria-hidden="true" />
-          </Button>
-        </div>
-        <nav className="proposal-context-tabs" aria-label="DAO workspace views" role="tablist">
-          {tabs.map((tab) => (
+    <div className="proposal-workspace-sidebar">
+      <Text className="label">DAO workspace</Text>
+      <div className="proposal-workspace-buttons" aria-label="DAO workspace views">
+        {tabs.map((tab) => (
+          <Fragment key={tab.id}>
             <button
               className={activeTab === tab.id ? 'is-active' : undefined}
-              key={tab.id}
               type="button"
-              onClick={() => selectTab(tab.id)}
-              aria-selected={activeTab === tab.id}
-              aria-controls="proposal-context-panel"
-              role="tab"
+              ref={(element) => {
+                buttonsRef.current[tab.id] = element;
+              }}
+              onMouseEnter={() => {
+                if (window.matchMedia('(min-width: 1920px) and (hover: hover)').matches) setActiveTab(tab.id);
+              }}
+              onFocus={() => {
+                if (suppressFocusOpen.current) {
+                  suppressFocusOpen.current = false;
+                  return;
+                }
+                if (window.matchMedia('(min-width: 1920px)').matches) setActiveTab(tab.id);
+              }}
+              onClick={() => setActiveTab(tab.id)}
+              aria-expanded={activeTab === tab.id}
+              aria-controls="proposal-workspace-flyout"
             >
-              <span className="proposal-context-tab-label">{tab.label}</span>
-              <span className="proposal-context-tab-short-label">{tab.shortLabel}</span>
+              {tab.label}
             </button>
-          ))}
-        </nav>
-
-        <div className="proposal-context-rail__body" id="proposal-context-panel" role="tabpanel" tabIndex={0}>
-          {activeTab === 'treasury' ? (
-            <Stack gap="4">
-              <div>
-                <Text className="proposal-context-kicker">Available resources</Text>
-                <Text className="proposal-context-intro">
-                  Check balances before proposing a transfer or funding change.
-                </Text>
-              </div>
-              <TreasuryPanel config={config} />
-            </Stack>
-          ) : null}
-          {activeTab === 'members' ? (
-            <Stack gap="4">
-              <div>
-                <Text className="proposal-context-kicker">People in the DAO</Text>
-                <Text className="proposal-context-intro">Find a recipient or verify voting power.</Text>
-              </div>
-              <MemberPanel daoTokenAddress={daoTokenAddress} />
-            </Stack>
-          ) : null}
-          {activeTab === 'contracts' ? (
-            <Stack gap="4">
-              <div>
-                <Text className="proposal-context-kicker">On-chain addresses</Text>
-                <Text className="proposal-context-intro">Copy the contracts this proposal can interact with.</Text>
-              </div>
-              <DaoContractList config={config} className="proposal-context-list" compact />
-            </Stack>
-          ) : null}
-          {activeTab === 'history' ? (
-            <Stack gap="4">
-              <div>
-                <Text className="proposal-context-kicker">Past decisions</Text>
-                <Text className="proposal-context-intro">See how this DAO has handled similar proposals.</Text>
-              </div>
-              <HistoryPanel daoId={daoId} />
-            </Stack>
-          ) : null}
-        </div>
-      </aside>
-    </>
+            {tab.id === 'user' ? <div className="proposal-workspace-user-divider" role="separator" /> : null}
+          </Fragment>
+        ))}
+      </div>
+      {activeTab ? (
+        <>
+          <div className="proposal-workspace-backdrop" aria-hidden="true" />
+          <aside
+            className="proposal-workspace-flyout"
+            id="proposal-workspace-flyout"
+            aria-label={`${tabs.find((tab) => tab.id === activeTab)?.label} context`}
+          >
+            <div className="proposal-workspace-flyout__header">
+              <strong>{tabs.find((tab) => tab.id === activeTab)?.label}</strong>
+              <button type="button" onClick={closeFlyout} aria-label="Close DAO workspace panel">
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="proposal-workspace-flyout__body">
+              {activeTab === 'user' ? (
+                <Stack gap="2">
+                  <Text className="proposal-context-kicker">Connected wallet</Text>
+                  {address ? (
+                    <>
+                      <div className="proposal-workspace-address-row">
+                        <Text className="proposal-workspace-address">{address}</Text>
+                        <CopyIconButton
+                          copied={copiedUser}
+                          onClick={() => void copyUserAddress()}
+                          label="Copy wallet address"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <Text className="proposal-context-detail">Connect a wallet to see and copy its address.</Text>
+                  )}
+                </Stack>
+              ) : null}
+              {activeTab === 'treasury' ? (
+                <Stack gap="4">
+                  <div>
+                    <Text className="proposal-context-kicker">Available resources</Text>
+                    <Text className="proposal-context-intro">
+                      Check balances before proposing a transfer or funding change.
+                    </Text>
+                  </div>
+                  <TreasuryPanel config={config} />
+                </Stack>
+              ) : null}
+              {activeTab === 'members' ? (
+                <Stack gap="4">
+                  <div>
+                    <Text className="proposal-context-kicker">People in the DAO</Text>
+                    <Text className="proposal-context-intro">Find a recipient or verify voting power.</Text>
+                  </div>
+                  <MemberPanel daoTokenAddress={daoTokenAddress} />
+                </Stack>
+              ) : null}
+              {activeTab === 'contracts' ? (
+                <Stack gap="4">
+                  <div>
+                    <Text className="proposal-context-kicker">On-chain addresses</Text>
+                    <Text className="proposal-context-intro">Copy the contracts this proposal can interact with.</Text>
+                  </div>
+                  <DaoContractList config={config} className="proposal-context-list" compact />
+                </Stack>
+              ) : null}
+              {activeTab === 'history' ? (
+                <Stack gap="4">
+                  <div>
+                    <Text className="proposal-context-kicker">Past decisions</Text>
+                    <Text className="proposal-context-intro">See how this DAO has handled similar proposals.</Text>
+                  </div>
+                  <HistoryPanel daoId={daoId} />
+                </Stack>
+              ) : null}
+            </div>
+          </aside>
+        </>
+      ) : null}
+    </div>
   );
 }
