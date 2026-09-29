@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Stack } from 'styled-system/jsx';
 import useSWR from 'swr';
 
+import { QuickBuyMembership } from '@/components/dashboard/quick-buy-membership';
 import { PageSection } from '@/components/page-section';
 import { ProposalStateBadge } from '@/components/proposal/proposal-state-badge';
 import type { ProposalListResponse } from '@/components/proposal/types';
@@ -257,7 +258,7 @@ export default function Page() {
 
       <div className="dashboard-secondary-grid">
         {config.auctionContractId && config.auctionEnabled !== false ? (
-          <Card className="dashboard-secondary-card" p="5">
+          <Card className="dashboard-secondary-card dashboard-secondary-card--quick-buy" p="5">
             <div className="dashboard-secondary-card__content">
               <Heading style={{ fontSize: '1.35rem', margin: 0 }}>Auction</Heading>
               <div className="dashboard-secondary-card__scroll">
@@ -329,6 +330,7 @@ export default function Page() {
                   </div>
                 ) : null}
               </div>
+              <QuickBuyMembership />
             </div>
           </Card>
         ) : null}

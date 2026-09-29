@@ -1,12 +1,12 @@
 'use client';
 
-import { Copy, ExternalLink, RefreshCw, Search, WalletCards, X } from 'lucide-react';
+import { ExternalLink, RefreshCw, Search, WalletCards, X } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stack } from 'styled-system/jsx';
 import useSWR from 'swr';
 
-import { Badge, Button, Callout, Card, Input, ShortId, Skeleton, Text } from '@/components/ui';
+import { Badge, Button, Callout, Card, CopyIconButton, Input, Skeleton, Text } from '@/components/ui';
 import { useDaoContext } from '@/contexts/dao-context';
 import { useGoldskyMemberList } from '@/lib/goldsky-queries';
 import type { AssetBalance } from '@/lib/treasury-queries';
@@ -103,7 +103,9 @@ function TreasuryPanel({ balances, loading, error }: { balances?: AssetBalance[]
 }
 
 function MemberPanel({ daoTokenAddress }: { daoTokenAddress: string }) {
+  const { daoId } = useDaoContext();
   const [query, setQuery] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const { data, error, isLoading, mutate } = useGoldskyMemberList(daoTokenAddress, 100);
   const normalizedQuery = query.trim().toLowerCase();
   const rows = useMemo(
@@ -114,7 +116,13 @@ function MemberPanel({ daoTokenAddress }: { daoTokenAddress: string }) {
     [data?.items, normalizedQuery]
   );
   const copyAddress = async (address: string) => {
-    await navigator.clipboard?.writeText(address);
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedAddress(address);
+      window.setTimeout(() => setCopiedAddress((current) => (current === address ? null : current)), 1200);
+    } catch {
+      setCopiedAddress(null);
+    }
   };
 
   return (
@@ -142,17 +150,23 @@ function MemberPanel({ daoTokenAddress }: { daoTokenAddress: string }) {
               <div className="proposal-context-member" key={member.address}>
                 <div className="proposal-context-member-heading">
                   <Badge>#{index + 1}</Badge>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Copy ${member.address}`}
-                    onClick={() => void copyAddress(member.address)}
+                  <Link
+                    href={`/dao/${encodeURIComponent(daoId)}/members/${encodeURIComponent(member.address)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={member.address}
+                    className="proposal-context-member-link"
                   >
-                    <Copy size={14} aria-hidden="true" />
-                  </Button>
+                    {member.address.length > 16
+                      ? `${member.address.slice(0, 6)}…${member.address.slice(-6)}`
+                      : member.address}
+                  </Link>
+                  <CopyIconButton
+                    copied={copiedAddress === member.address}
+                    onClick={() => void copyAddress(member.address)}
+                    label={`Copy ${member.address}`}
+                  />
                 </div>
-                <ShortId value={member.address} />
                 <Text className="proposal-context-detail">
                   {formatNumber(member.voting_power)} voting power · {member.owned_token_count} tokens
                 </Text>

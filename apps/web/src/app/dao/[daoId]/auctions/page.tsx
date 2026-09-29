@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { Grid, Stack } from 'styled-system/jsx';
 import useSWR from 'swr';
 
+import { QuickBuyMembership } from '@/components/dashboard/quick-buy-membership';
 import { PageSection } from '@/components/page-section';
 import { Button, Callout, Card, Heading, Input, ShortId, Skeleton, Text } from '@/components/ui';
 import type { NetworkName } from '@/config/networks';
@@ -180,6 +181,7 @@ export default function AuctionsPage() {
 
   return (
     <PageSection title="Auctions" description="Bid on the current DAO collectible and browse settled auctions.">
+      <QuickBuyMembership placement="auction-header" />
       <Stack gap="6">
         {error ? <Callout variant="error" title={error.message} /> : null}
         {isLoading && !data ? (

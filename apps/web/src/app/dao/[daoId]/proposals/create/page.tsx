@@ -5,8 +5,8 @@
 import { Client as GovernorClient } from '@builder-stellar/governor-bindings';
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit/sdk';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
-import { Grid, Stack } from 'styled-system/jsx';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Stack } from 'styled-system/jsx';
 
 import { PageSection } from '@/components/page-section';
 import { ProposalActionConfirmDialog } from '@/components/proposal/proposal-action-confirm-dialog';
@@ -23,26 +23,20 @@ import { encodeProposalMetadata, validateProposalMetadataDraft } from '@/lib/pro
 import { waitForConfirmation } from '@/lib/transaction-confirmation';
 import { useTransactionFeedback } from '@/lib/transaction-feedback';
 import { useDaoSessionStore } from '@/stores/dao-session-store';
-import {
-  selectCanProceedToStep2,
-  selectDraft,
-  selectHasDraft,
-  useProposalComposerStore
-} from '@/stores/proposal-composer-store';
+import { selectDraft, selectHasDraft, useProposalComposerStore } from '@/stores/proposal-composer-store';
 
 export default function ProposalCreatePage() {
   const { daoId } = useDaoContext();
   const router = useRouter();
   const session = useDaoSessionStore();
   const { daoConfig: config } = useDaoContext();
+  const draftAddress = session.address || '';
 
   // Zustand store hooks
-  const draft = useProposalComposerStore(selectDraft(session.address || null, daoId));
-  const { step, metadata, queuedActions, editingState } = draft;
-  const hasDraft = useProposalComposerStore(selectHasDraft(session.address || null, daoId));
-  const canProceed = useProposalComposerStore(selectCanProceedToStep2(session.address || null, daoId));
+  const draft = useProposalComposerStore(selectDraft(draftAddress, daoId));
+  const { metadata, queuedActions, editingState } = draft;
+  const hasDraft = useProposalComposerStore(selectHasDraft(draftAddress, daoId));
 
-  const setStep = useProposalComposerStore((s) => s.setStep);
   const updateMetadata = useProposalComposerStore((s) => s.updateMetadata);
   const beginCreate = useProposalComposerStore((s) => s.beginCreate);
   const reset = useProposalComposerStore((s) => s.reset);
@@ -55,9 +49,15 @@ export default function ProposalCreatePage() {
   const [transactionBusy, setTransactionBusy] = useState(false);
 
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState('proposal-title');
   const [contextRailOpen, setContextRailOpen] = useState(false);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
+  const reviewTriggerRef = useRef<HTMLButtonElement>(null);
+  const reviewCloseRef = useRef<HTMLButtonElement>(null);
+  const reviewDialogRef = useRef<HTMLDivElement>(null);
   const closeContextRail = useCallback(() => setContextRailOpen(false), []);
+  const closeReview = useCallback(() => setReviewOpen(false), []);
 
   const proposalCreationError = eligibility.error?.message;
   const proposalCreationLocked = !eligibility.eligible;
@@ -70,19 +70,63 @@ export default function ProposalCreatePage() {
   // Metadata validation
   const metadataValidation = validateProposalMetadataDraft(metadata);
 
-  const handleProceedToStep2 = () => {
-    if (metadataValidation.valid) {
-      setStep(session.address, daoId, 2);
-    }
-  };
+  const canReview = metadataValidation.valid && queuedActions.length > 0 && !editingState && !hasBlockingDraftFindings;
 
-  const handleProceedToStep3 = () => {
-    if (canProceed && queuedActions.length > 0) {
-      setStep(session.address, daoId, 3);
-    }
-  };
+  useEffect(() => {
+    const sectionIds = ['proposal-title', 'proposal-description', 'proposal-discussion', 'proposal-actions'];
+    const updateActiveSection = () => {
+      const threshold = Math.min(220, window.innerHeight * 0.35);
+      let current = sectionIds[0];
+      for (const id of sectionIds) {
+        if ((document.getElementById(id)?.getBoundingClientRect().top ?? Infinity) <= threshold) current = id;
+      }
+      setActiveSection(current);
+    };
+    updateActiveSection();
+    window.addEventListener('scroll', updateActiveSection, { passive: true });
+    window.addEventListener('resize', updateActiveSection);
+    return () => {
+      window.removeEventListener('scroll', updateActiveSection);
+      window.removeEventListener('resize', updateActiveSection);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const reviewTrigger = reviewTriggerRef.current;
+    document.body.style.overflow = 'hidden';
+    reviewCloseRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !transactionBusy) closeReview();
+      if (event.key !== 'Tab') return;
+      const focusable = reviewDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!reviewDialogRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      reviewTrigger?.focus();
+    };
+  }, [closeReview, reviewOpen, transactionBusy]);
 
   const handleOpenConfirmDialog = () => {
+    setReviewOpen(false);
     setConfirmDialogOpen(true);
   };
 
@@ -156,7 +200,7 @@ export default function ProposalCreatePage() {
       >
         <div className="proposal-studio-layout">
           <Stack gap="6">
-            {session.address && eligibility.loading ? (
+            {draftAddress && eligibility.loading ? (
               <div role="status" aria-live="polite" aria-busy="true" className="loading-card">
                 <span className="sr-only">Checking proposal eligibility</span>
                 <Card p="4">
@@ -194,242 +238,240 @@ export default function ProposalCreatePage() {
                     description={proposalCreationDisabledMessage}
                   />
                 ) : null}
-                {/* Wizard Steps */}
-                <div className="stepper" aria-label={`Proposal creation, step ${step} of 3`}>
-                  <Badge style={{ opacity: step === 1 ? 1 : 0.5 }}>1. Details</Badge>
-                  <div className="stepper-line" aria-hidden="true" />
-                  <Badge style={{ opacity: step === 2 ? 1 : 0.5 }}>2. Actions</Badge>
-                  <div className="stepper-line" aria-hidden="true" />
-                  <Badge style={{ opacity: step === 3 ? 1 : 0.5 }}>3. Review</Badge>
-                </div>
+                <div className="proposal-composer-layout">
+                  <nav className="proposal-composer-nav" aria-label="Proposal fields">
+                    <Text className="label">On this page</Text>
+                    {[
+                      ['proposal-title', 'Title'],
+                      ['proposal-description', 'Description'],
+                      ['proposal-discussion', 'Discussion'],
+                      ['proposal-actions', 'Actions']
+                    ].map(([id, label]) => (
+                      <a
+                        key={id}
+                        href={`#${id}`}
+                        className={activeSection === id ? 'is-active' : undefined}
+                        aria-current={activeSection === id ? 'location' : undefined}
+                        onClick={() => setActiveSection(id)}
+                      >
+                        {label}
+                      </a>
+                    ))}
+                  </nav>
 
-                {/* Step 1: Metadata */}
-                {step === 1 && (
-                  <Stack gap="4">
-                    <Card p="5">
-                      <Stack gap="4">
-                        <Heading as="h2" style={{ fontSize: '1.25rem' }}>
-                          Proposal Details
-                        </Heading>
+                  <div className="proposal-composer-form">
+                    <Heading as="h2" style={{ fontSize: '1.25rem' }}>
+                      Proposal details
+                    </Heading>
+                    <Text className="proposal-composer-intro">
+                      Write the decision, then add the on-chain actions it will perform if approved.
+                    </Text>
 
-                        <Stack gap="2">
-                          <label htmlFor="title">
-                            <Text style={{ fontWeight: 600 }}>Title</Text>
-                          </label>
-                          <Input
-                            id="title"
-                            value={metadata.title}
-                            onChange={(e) => updateMetadata(session.address, daoId, { title: e.target.value })}
-                            placeholder="Proposal title"
-                          />
-                          {!metadataValidation.valid && (
-                            <Text style={{ color: 'var(--error-9)', fontSize: '0.875rem' }}>
-                              {metadataValidation.message}
-                            </Text>
-                          )}
-                        </Stack>
+                    <section
+                      id="proposal-title"
+                      className="proposal-composer-section"
+                      aria-labelledby="proposal-title-label"
+                    >
+                      <label id="proposal-title-label" htmlFor="title">
+                        <Text style={{ fontWeight: 600 }}>Title</Text>
+                      </label>
+                      <Input
+                        id="title"
+                        value={metadata.title}
+                        onChange={(event) => updateMetadata(draftAddress, daoId, { title: event.target.value })}
+                        placeholder="Proposal title"
+                      />
+                      {!metadataValidation.valid && metadataValidation.message ? (
+                        <Text className="proposal-composer-validation">{metadataValidation.message}</Text>
+                      ) : null}
+                    </section>
 
-                        <Stack gap="2">
-                          <label htmlFor="description">
-                            <Text style={{ fontWeight: 600 }}>Description</Text>
-                          </label>
-                          <Textarea
-                            id="description"
-                            value={metadata.description}
-                            onChange={(e) => updateMetadata(session.address, daoId, { description: e.target.value })}
-                            placeholder="Describe what this proposal does"
-                            rows={6}
-                          />
-                        </Stack>
+                    <section
+                      id="proposal-description"
+                      className="proposal-composer-section"
+                      aria-labelledby="proposal-description-label"
+                    >
+                      <label id="proposal-description-label" htmlFor="description">
+                        <Text style={{ fontWeight: 600 }}>Description</Text>
+                      </label>
+                      <Textarea
+                        id="description"
+                        value={metadata.description}
+                        onChange={(event) => updateMetadata(draftAddress, daoId, { description: event.target.value })}
+                        placeholder="Describe what this proposal does"
+                        rows={8}
+                      />
+                    </section>
 
-                        <Stack gap="2">
-                          <label htmlFor="url">
-                            <Text style={{ fontWeight: 600 }}>Discussion URL (optional)</Text>
-                          </label>
-                          <Input
-                            id="url"
-                            value={metadata.url}
-                            onChange={(e) => updateMetadata(session.address, daoId, { url: e.target.value })}
-                            placeholder="https://forum.example.com/proposal-discussion"
-                          />
-                        </Stack>
-                      </Stack>
-                    </Card>
+                    <section
+                      id="proposal-discussion"
+                      className="proposal-composer-section"
+                      aria-labelledby="proposal-discussion-label"
+                    >
+                      <label id="proposal-discussion-label" htmlFor="url">
+                        <Text style={{ fontWeight: 600 }}>Discussion URL (optional)</Text>
+                      </label>
+                      <Input
+                        id="url"
+                        value={metadata.url}
+                        onChange={(event) => updateMetadata(draftAddress, daoId, { url: event.target.value })}
+                        placeholder="https://forum.example.com/proposal-discussion"
+                      />
+                    </section>
 
-                    <div className="form-actions">
-                      <Button variant="outline" onClick={() => router.back()}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleProceedToStep2} disabled={!metadataValidation.valid}>
-                        Continue to Actions
-                      </Button>
-                    </div>
-                  </Stack>
-                )}
-
-                {/* Step 2: Actions */}
-                {step === 2 && (
-                  <ActionFormProvider config={config} session={{ address: session.address, kit: StellarWalletsKit }}>
-                    <Stack gap="4">
-                      <div>
-                        <Heading as="h2" style={{ fontSize: '1.25rem', marginBottom: '8px' }}>
-                          Proposal Actions
-                        </Heading>
-                        <Text style={{ color: 'var(--gray-11)', fontSize: '0.875rem' }}>
-                          Add one or more actions that will execute if this proposal passes
-                        </Text>
-                      </div>
-
-                      <Grid columns={{ base: 1, lg: 2 }} gap="6">
+                    <section
+                      id="proposal-actions"
+                      className="proposal-composer-section"
+                      aria-labelledby="proposal-actions-label"
+                    >
+                      <Heading as="h2" id="proposal-actions-label" style={{ fontSize: '1.25rem' }}>
+                        Proposal actions
+                      </Heading>
+                      <Text className="proposal-composer-intro">
+                        Add one or more actions that will execute if this proposal passes.
+                      </Text>
+                      <ActionFormProvider
+                        config={config}
+                        session={{ address: session.address, kit: StellarWalletsKit }}
+                      >
                         <Stack gap="4">
-                          {!editingState && (
-                            <Button onClick={() => beginCreate(session.address, daoId)}>Add Action</Button>
-                          )}
-
+                          {!editingState ? (
+                            <Button onClick={() => beginCreate(draftAddress, daoId)}>Add Action</Button>
+                          ) : null}
                           <ActionFormWrapper daoId={daoId} />
-                        </Stack>
-
-                        <Stack gap="4">
                           <Heading as="h3" style={{ fontSize: '1.125rem' }}>
                             Queued Actions ({queuedActions.length})
                           </Heading>
                           <ProposalActionQueue daoId={daoId} />
                         </Stack>
-                      </Grid>
-
-                      <div className="form-actions form-actions--split">
-                        <Button variant="outline" onClick={() => setStep(session.address, daoId, 1)}>
-                          Back to Details
-                        </Button>
-                        <Button onClick={handleProceedToStep3} disabled={!canProceed || queuedActions.length === 0}>
-                          Continue to Review
-                        </Button>
-                      </div>
-                    </Stack>
-                  </ActionFormProvider>
-                )}
-
-                {/* Step 3: Review */}
-                {step === 3 && (
-                  <Stack gap="4">
-                    <div>
-                      <Heading as="h2" style={{ fontSize: '1.25rem', marginBottom: '8px' }}>
-                        Review & Submit
-                      </Heading>
-                      <Text style={{ color: 'var(--gray-11)', fontSize: '0.875rem' }}>
-                        Review your proposal details and actions before submitting to the blockchain
-                      </Text>
-                    </div>
-
-                    <Callout
-                      variant="warning"
-                      badge="Wallet transaction"
-                      title="Submitting creates an on-chain governance proposal"
-                      description="Your wallet will show the final transaction for review. Confirm the target contracts, recipients, and amounts before signing."
-                    />
+                      </ActionFormProvider>
+                    </section>
 
                     {hasBlockingDraftFindings ? (
                       <Callout
                         variant="error"
-                        badge="Resolve before submitting"
                         title="This draft contains duplicate or conflicting actions"
-                        description="Return to Actions and remove or replace the flagged action before submitting the proposal."
+                        description="Remove or replace the flagged action before reviewing the proposal."
                       />
                     ) : null}
-
-                    <Card p="5">
-                      <Stack gap="4">
-                        <div>
-                          <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)', marginBottom: '4px' }}>
-                            Title
-                          </Text>
-                          <Text style={{ fontWeight: 600, fontSize: '1.125rem' }}>{metadata.title}</Text>
-                        </div>
-
-                        <div>
-                          <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)', marginBottom: '4px' }}>
-                            Description
-                          </Text>
-                          <Text style={{ lineHeight: 1.6 }}>{metadata.description}</Text>
-                        </div>
-
-                        {metadata.url && (
-                          <div>
-                            <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)', marginBottom: '4px' }}>
-                              Discussion URL
-                            </Text>
-                            <a
-                              href={metadata.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{
-                                color: 'var(--accent-11)',
-                                textDecoration: 'underline',
-                                wordBreak: 'break-all'
-                              }}
-                            >
-                              {metadata.url}
-                            </a>
-                          </div>
-                        )}
-
-                        <div>
-                          <Text style={{ fontSize: '0.875rem', color: 'var(--gray-11)', marginBottom: '8px' }}>
-                            Actions ({queuedActions.length})
-                          </Text>
-                          <Stack gap="2">
-                            {queuedActions.map((action, i) => (
-                              <Card
-                                key={action.id}
-                                p="3"
-                                style={{ background: 'var(--gray-2)', border: '1px solid var(--gray-6)' }}
-                              >
-                                <Text style={{ fontSize: '0.875rem' }}>
-                                  <strong>{i + 1}.</strong> {getProposalActionSummary(action)}
-                                </Text>
-                              </Card>
-                            ))}
-                          </Stack>
-                        </div>
-                      </Stack>
-                    </Card>
-
                     <div className="form-actions form-actions--split">
-                      <Button variant="outline" onClick={() => setStep(session.address, daoId, 2)}>
-                        Back to Actions
+                      <Button variant="outline" onClick={() => router.back()}>
+                        Cancel
                       </Button>
-                      <Button
-                        onClick={handleOpenConfirmDialog}
-                        disabled={proposalCreationLocked || transactionBusy || hasBlockingDraftFindings}
-                      >
-                        {transactionBusy ? 'Submitting...' : 'Submit Proposal'}
+                      <Button ref={reviewTriggerRef} onClick={() => setReviewOpen(true)} disabled={!canReview}>
+                        Review proposal
                       </Button>
                     </div>
-                  </Stack>
-                )}
+                    {!canReview ? (
+                      <Text className="proposal-composer-hint">
+                        Add a valid title, description, and at least one completed action to review.
+                      </Text>
+                    ) : null}
+                  </div>
+                </div>
               </>
             )}
           </Stack>
-          <ProposalContextRail
-            key={editingState?.actionType ?? 'no-action'}
-            activeActionType={editingState?.actionType}
-            mobileOpen={contextRailOpen}
-            onMobileClose={closeContextRail}
-            mobileTriggerRef={contextTriggerRef}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            className="proposal-context-mobile-trigger"
-            onClick={() => setContextRailOpen(true)}
-            ref={contextTriggerRef}
-            aria-expanded={contextRailOpen}
-            aria-controls="proposal-context-rail"
-          >
-            Reference DAO context
-          </Button>
+          {!reviewOpen ? (
+            <>
+              <ProposalContextRail
+                key={editingState?.actionType ?? 'no-action'}
+                activeActionType={editingState?.actionType}
+                mobileOpen={contextRailOpen}
+                onMobileClose={closeContextRail}
+                mobileTriggerRef={contextTriggerRef}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="proposal-context-mobile-trigger"
+                onClick={() => setContextRailOpen(true)}
+                ref={contextTriggerRef}
+                aria-expanded={contextRailOpen}
+                aria-controls="proposal-context-rail"
+              >
+                Reference DAO context
+              </Button>
+            </>
+          ) : null}
         </div>
       </PageSection>
+
+      {reviewOpen ? (
+        <div className="proposal-review-backdrop" role="presentation" onClick={closeReview}>
+          <div
+            ref={reviewDialogRef}
+            className="proposal-review-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="proposal-review-title"
+            aria-describedby="proposal-review-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="proposal-review-header">
+              <div>
+                <Text className="label">Proposal preview</Text>
+                <Heading as="h2" id="proposal-review-title">
+                  {metadata.title || 'Untitled proposal'}
+                </Heading>
+                <Text id="proposal-review-description" className="proposal-composer-intro">
+                  Review before creating this on-chain proposal
+                </Text>
+              </div>
+              <Button ref={reviewCloseRef} type="button" variant="outline" onClick={closeReview}>
+                Close
+              </Button>
+            </div>
+            <div className="proposal-review-body">
+              <div className="proposal-review-status">
+                <Badge>Draft</Badge>
+                <Text>
+                  {queuedActions.length} action{queuedActions.length === 1 ? '' : 's'} queued
+                </Text>
+              </div>
+              <Callout
+                variant="warning"
+                badge="Wallet transaction"
+                title="Submitting creates an on-chain governance proposal"
+                description="Your wallet will show the final transaction for review. Confirm the contracts, recipients, and amounts before signing."
+              />
+              <section className="proposal-review-section" aria-labelledby="proposal-review-description-heading">
+                <Heading as="h3" id="proposal-review-description-heading">
+                  Description
+                </Heading>
+                <Text className="proposal-review-description-text">{metadata.description}</Text>
+                {metadata.url ? (
+                  <a href={metadata.url} target="_blank" rel="noopener noreferrer" className="proposal-review-link">
+                    Discussion <span aria-hidden="true">↗</span>
+                  </a>
+                ) : null}
+              </section>
+              <section className="proposal-review-section" aria-labelledby="proposal-review-actions-heading">
+                <Heading as="h3" id="proposal-review-actions-heading">
+                  Actions ({queuedActions.length})
+                </Heading>
+                <ol className="proposal-review-actions">
+                  {queuedActions.map((action) => (
+                    <li key={action.id}>{getProposalActionSummary(action)}</li>
+                  ))}
+                </ol>
+              </section>
+            </div>
+            <div className="proposal-review-footer">
+              <Button type="button" variant="outline" onClick={closeReview}>
+                Back to edit
+              </Button>
+              <Button
+                type="button"
+                onClick={handleOpenConfirmDialog}
+                disabled={!canReview || proposalCreationLocked || transactionBusy}
+              >
+                Submit proposal
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Confirm Dialog */}
       <ProposalActionConfirmDialog
