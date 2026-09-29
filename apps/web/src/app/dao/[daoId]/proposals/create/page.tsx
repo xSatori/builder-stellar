@@ -255,7 +255,7 @@ export default function ProposalCreatePage() {
                   <nav className="proposal-composer-nav" aria-label="Proposal fields">
                     <ProposalContextRail address={session.address} />
                     <div className="proposal-workspace-divider" role="separator" />
-                    <Text className="label">On this page</Text>
+                    <Text className="label">Navigation</Text>
                     {[
                       ['proposal-title', 'Title'],
                       ['proposal-description', 'Description'],
