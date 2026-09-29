@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { selectDraft, selectHasDraft, useProposalComposerStore } from './proposal-composer-store';
+import { selectDraft, selectHasDraft, selectQueuedActions, useProposalComposerStore } from './proposal-composer-store';
 
 const daoId = 'dao-wallet-scope-test';
 
@@ -9,6 +9,15 @@ function clearDraft(address: string) {
 }
 
 describe('proposal composer wallet scoping', () => {
+  it('returns a stable empty action queue until a draft exists', () => {
+    const wallet = 'GQUEUEWITHOUTADRAFT';
+    const state = useProposalComposerStore.getState();
+
+    expect(selectQueuedActions(wallet, daoId)(state)).toBe(selectQueuedActions(wallet, daoId)(state));
+    expect(selectQueuedActions(null, daoId)(state)).toBe(selectQueuedActions(null, daoId)(state));
+    expect(selectQueuedActions(wallet, daoId)(state)).toBe(selectDraft(wallet, daoId)(state).queuedActions);
+  });
+
   it('isolates drafts for the same DAO between wallets', () => {
     const walletA = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
     const walletB = 'gbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';

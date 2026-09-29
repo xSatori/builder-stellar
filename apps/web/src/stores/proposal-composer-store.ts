@@ -332,6 +332,9 @@ export const selectDraft = (address: string | null, daoId: string) => (state: Pr
   return state.draftsByWallet[normalizeWalletAddress(address)]?.[daoId] ?? emptyDraft;
 };
 
+export const selectQueuedActions = (address: string | null, daoId: string) => (state: ProposalComposerStore) =>
+  selectDraft(address, daoId)(state).queuedActions;
+
 export const selectHasDraft = (address: string | null, daoId: string) => (state: ProposalComposerStore) => {
   if (!address) return false;
   const draft = state.draftsByWallet[normalizeWalletAddress(address)]?.[daoId];
