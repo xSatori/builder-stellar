@@ -32,7 +32,7 @@ const config = [
     },
     rules: {
       // Prettier integration
-      'prettier/prettier': 'error',
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
 
       // TypeScript rules
       '@typescript-eslint/no-unused-vars': [
