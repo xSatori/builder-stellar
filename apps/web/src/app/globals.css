@@ -2161,6 +2161,7 @@ textarea {
 
 .proposal-composer-nav {
   position: sticky;
+  z-index: 60;
   top: 110px;
   display: grid;
   align-content: start;
@@ -2823,7 +2824,7 @@ textarea {
   }
 
   .proposal-composer-nav {
-    position: static;
+    position: relative;
     display: flex;
     gap: 2px;
     overflow-x: auto;
@@ -4193,7 +4194,7 @@ textarea {
   }
 
   .proposal-composer-nav {
-    position: static;
+    position: relative;
     display: block;
     overflow: visible;
   }
