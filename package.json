@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.12.4",
   "scripts": {
-    "prepare": "lefthook install",
+    "prepare": "node scripts/prepare.mjs",
     "dev": "pnpm --dir apps/web dev",
     "build": "pnpm --dir apps/web build",
     "lint": "pnpm --dir apps/web lint",
