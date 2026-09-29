@@ -205,9 +205,8 @@ textarea {
 }
 
 .app-header {
-  position: sticky;
+  position: relative;
   z-index: 50;
-  top: 16px;
   display: grid;
   gap: 0;
   padding: 12px;
@@ -3164,7 +3163,6 @@ textarea {
     justify-content: flex-start;
   }
   .app-header {
-    top: 8px;
     padding: 9px;
     border-radius: 14px;
   }
