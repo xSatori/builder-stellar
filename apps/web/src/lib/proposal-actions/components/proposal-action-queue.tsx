@@ -8,7 +8,7 @@ import { Stack } from 'styled-system/jsx';
 import { ProposalActionConfirmDialog } from '@/components/proposal/proposal-action-confirm-dialog';
 import { Badge, Button, Card, Text } from '@/components/ui';
 import { getProposalActionSummary } from '@/lib/proposal-call';
-import { useDaoSessionStore } from '@/stores/dao-session-store';
+import { useAuthSessionStore } from '@/stores/auth-session-store';
 import {
   normalizeWalletAddress,
   selectQueuedActions,
@@ -26,7 +26,7 @@ type ConfirmDialogState = {
 } | null;
 
 export function ProposalActionQueue({ daoId, editable = true }: { daoId: string; editable?: boolean }) {
-  const address = useDaoSessionStore((state) => state.address);
+  const address = useAuthSessionStore((state) => state.address);
   const walletKey = normalizeWalletAddress(address);
   const queuedActions = useProposalComposerStore(selectQueuedActions(address, daoId));
   const editingState = useProposalComposerStore((s) => s.draftsByWallet[walletKey]?.[daoId]?.editingState ?? null);

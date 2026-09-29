@@ -22,13 +22,13 @@ import { proposalIdToRouteId } from '@/lib/proposal-id';
 import { encodeProposalMetadata, validateProposalMetadataDraft } from '@/lib/proposal-metadata';
 import { waitForConfirmation } from '@/lib/transaction-confirmation';
 import { useTransactionFeedback } from '@/lib/transaction-feedback';
-import { useDaoSessionStore } from '@/stores/dao-session-store';
+import { useAuthSessionStore } from '@/stores/auth-session-store';
 import { selectDraft, selectHasDraft, useProposalComposerStore } from '@/stores/proposal-composer-store';
 
 export default function ProposalCreatePage() {
   const { daoId } = useDaoContext();
   const router = useRouter();
-  const session = useDaoSessionStore();
+  const session = useAuthSessionStore();
   const { daoConfig: config } = useDaoContext();
   const draftAddress = session.address || '';
 
