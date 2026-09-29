@@ -31,12 +31,15 @@ function getClientKey(request: Request): string | null {
   const cloudflareIp = request.headers.get('cf-connecting-ip')?.trim();
   if (cloudflareIp) return cloudflareIp;
 
-  // Development fallback - allow local dev with static identifier
+  // Allow headerless development requests only from a loopback URL.
   if (process.env.NODE_ENV === 'development') {
-    return 'localhost-dev';
+    const hostname = new URL(request.url).hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+      return 'local-development';
+    }
   }
 
-  // Fail closed in production if no valid IP found
+  // Fail closed when no trusted client identity is available.
   return null;
 }
 

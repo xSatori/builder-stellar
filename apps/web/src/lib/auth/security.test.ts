@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { enforceAuthRateLimit } from './rate-limit';
 import { claimAuthChallenge, consumeAuthChallenge, releaseAuthChallenge } from './server';
 
 describe('authentication safeguards', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it('allows one challenge claim and blocks concurrent claims', () => {
     const nonce = `nonce-${crypto.randomUUID()}`;
     const expiresAt = Date.now() + 60_000;
@@ -103,5 +105,23 @@ describe('authentication safeguards', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('rate-limits loopback requests without a forwarding header in development', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const scope = `local-development-${crypto.randomUUID()}`;
+    const request = new Request('http://localhost:3000/api/auth/session');
+
+    expect(enforceAuthRateLimit(request, scope, 2)).toBeNull();
+    expect(enforceAuthRateLimit(request, scope, 2)).toBeNull();
+    expect((enforceAuthRateLimit(request, scope, 2) as Response).status).toBe(429);
+  });
+
+  it('still requires a trusted identity for non-loopback development requests', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const scope = `remote-development-${crypto.randomUUID()}`;
+    const request = new Request('http://example.test/api/auth/session');
+
+    expect((enforceAuthRateLimit(request, scope, 2) as Response).status).toBe(503);
   });
 });
